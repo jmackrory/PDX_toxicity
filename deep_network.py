@@ -4,6 +4,9 @@ from tensorflow.contrib.layers import fully_connected, l2_regularizer
 import numpy as np
 from model import Model
 
+#to prevent creating huge logs.
+from IPython.display import clear_output
+
 class deep_dropout_NN(Model):
 
     def __init__(self,X,y):  
@@ -16,32 +19,40 @@ class deep_dropout_NN(Model):
         self.frac_perc=0.01
         self.n_iter=1000
         self.Nobs=X.shape[0]
-        self.Nfeature=X.shape[1]
+        self.Nfeatures=X.shape[1]
         #only grabbing a fraction of the data
-        self.Nsub=np.int(self.Nobs*self.frac_perc)
-        self.create_train_graph()
-
+        self.Nbatch=np.int(self.Nobs*self.frac_perc)
+        self.build()
 
     def add_placeholders(self):
-        """Adds placeholders to graph
+        """Adds placeholders to graph, by adding
+        as instance variables for the model.
         """
-        
-        
-    def create_train_graph(self):
-        """
-        create_train_graph
-
-        Creates the graph for a deep NN using 
-        4 layers with ReLU activation and dropout.
-        """
-
-        tf.reset_default_graph()
-
         #load in the training examples, and their labels
-        X = tf.placeholder(tf.float32, [self.Nsub,self.Nfeature],name='X')
-        y = tf.placeholder(tf.int32,[self.Nsub,self.Nout],name='y')
+        self.X = tf.placeholder(tf.float32, [self.Nbatch,self.Nfeatures],name='X')
+        self.y = tf.placeholder(tf.int32,[self.Nbatch,self.Nout],name='y')
 
-        X2 = tf.nn.l2_normalize(X,dim=1)
+    def create_feed_dict(self,inputs_batch, labels_batch=None):
+        """Make a feed_dict from inputs, labels as inputs for 
+        graph.
+        Args:
+        inputs_batch - batch of input data
+        label_batch  - batch of output labels. (Can be none for prediction)
+        Return:
+        Feed_dict - the mapping from data to placeholders.
+        """
+        feed_dict={self.X:inputs_batch}
+        if labels_batch is not None:
+            feed_dict[self.y]=labels_batch
+        return feed_dict
+
+    def add_prediction_op(self):
+        """The core model to the graph, that
+        transforms the inputs into outputs.
+        Implements deep neural network with relu activation.
+        """
+
+        X2 = tf.nn.l2_normalize(self.X,dim=1)
 
         # #make a hidden layer.  Must be smarter way to scale up. Make a list?
         #Theres a way to do it for RNN/connected layers in MultiCell?
@@ -59,19 +70,19 @@ class deep_dropout_NN(Model):
             biases_regularizer=l2_regularizer)
         H2_d=tf.nn.dropout(H2,self.keep_prob)
 
-        H3 = fully_connected(inputs=H2_d,num_outputs=self.Nhidden,
-           activation_fn=tf.nn.relu,
-           biases_initializer=tf.zeros_initializer ,
-           weights_regularizer=l2_regularizer,
-           biases_regularizer=l2_regularizer)
-        H3_d=tf.nn.dropout(H3,self.keep_prob)
+        # H3 = fully_connected(inputs=H2_d,num_outputs=self.Nhidden,
+        #    activation_fn=tf.nn.relu,
+        #    biases_initializer=tf.zeros_initializer ,
+        #    weights_regularizer=l2_regularizer,
+        #    biases_regularizer=l2_regularizer)
+        # H3_d=tf.nn.dropout(H3,self.keep_prob)
 
-        H4 = fully_connected(inputs=H3_d,num_outputs=self.Nhidden,
-           activation_fn=tf.nn.relu,
-           biases_initializer=tf.zeros_initializer ,
-           weights_regularizer=l2_regularizer,
-           biases_regularizer=l2_regularizer)
-        H4_d =tf.nn.dropout(H4,self.keep_prob)
+        # H4 = fully_connected(inputs=H3_d,num_outputs=self.Nhidden,
+        #    activation_fn=tf.nn.relu,
+        #    biases_initializer=tf.zeros_initializer ,
+        #    weights_regularizer=l2_regularizer,
+        #    biases_regularizer=l2_regularizer)
+        # H4_d =tf.nn.dropout(H4,self.keep_prob)
 
         #Need to add dropout layers too.
 
@@ -79,20 +90,61 @@ class deep_dropout_NN(Model):
         print('NB: Only using 2 layers!')
         outputs=fully_connected(inputs=H2,num_outputs=self.Nout,
             activation_fn=tf.sigmoid)
+        
+        return outputs
 
-        #should compute mean log-loss
+    def add_loss_op(self,outputs):
+        """Add ops for loss to graph.
+        Average loss for a given set of outputs
+        """
         eps=1E-15
-        logloss = tf.losses.log_loss(y,outputs,epsilon=eps)
-        rocloss=tf.metrics.auc(y,outputs)
-        #loss = tf.reduce_mean(tf.square(y-outputs2))
-        #define optimization function.
+        logloss = tf.losses.log_loss(self.y,outputs,epsilon=eps)
+        rocloss=tf.metrics.auc(self.y,outputs)
+
+        return logloss
+
+    def add_training_op(self,loss):
+        """Create op for optimizing loss function.
+        Can be passed to sess.run() to train the model.
+        Return 
+        """
         optimizer=tf.train.AdamOptimizer(learning_rate=self.lr)
-        training_op=optimizer.minimize(logloss)
+        training_op=optimizer.minimize(loss)
+        return training_op
 
-        #basically add ops to model for cross-routine access.
-        self.training_op=training_op
-        self.outputs=outputs
+    def train_on_batch(self, sess, inputs_batch, labels_batch):
+        """Perform one step of gradient descent on the provided batch of data.
 
+        Args:
+            sess: tf.Session()
+            input_batch:  np.ndarray of shape (Nbatch, Nfeatures)
+            labels_batch: np.ndarray of shape (Nbatch, 1)
+        Returns:
+            loss: loss over the batch (a scalar)
+        """
+        feed = self.create_feed_dict(inputs_batch, labels_batch=labels_batch)
+        _, loss = sess.run([self.train_op, self.loss], feed_dict=feed)
+        return loss
+
+    def predict_on_batch(self, sess, inputs_batch):
+        """Make predictions for the provided batch of data
+
+        Args:
+            sess: tf.Session()
+            input_batch: np.ndarray of shape (Nbatch, Nfeatures)
+        Returns:
+            predictions: np.ndarray of shape (Nbatch, 1)
+        """
+        feed = self.create_feed_dict(inputs_batch)
+        predictions = sess.run(self.pred, feed_dict=feed)
+        return predictions
+
+    def build(self):
+        self.add_placeholders()
+        self.pred = self.add_prediction_op()
+        self.loss = self.add_loss_op(self.pred)
+        self.train_op = self.add_training_op(self.loss)
+        
     def get_batch(self,Xi,yi):
         """get_subset
         Returns random subset of the data and labels.
@@ -131,15 +183,13 @@ class deep_dropout_NN(Model):
                  #select random starting point.
                  ind_batch,X_batch,y_batch=self.get_batch(
                  Xi,yi)
-                 sess.run(self.training_op, feed_dict={X: X_batch, y:y_batch})             
+                 current_loss=self.train_on_batch(sess, X_batch, y_batch)
                  if (iteration+1)%100 ==0:
                     clear_output(wait=True)
-                    current_logloss=logloss.eval( feed_dict={X:X_batch,y:y_batch})
-                    current_aucloss=aucloss.eval( feed_dict={X:X_batch,y:y_batch})
-                    print('iter #{}. Current log-loss:{}'.format( iteration,mse))
-                    nn_pred=sess.run(self.outputs,feed_dict={X:X_batch})
-                    nn_pred_reduced=np.round(nn_pred).astype(bool)
-                    #check_predictions(nn_pred_reduced,y_batch)
+                    #current_pred=self.predict_on_batch(sess,X_batch)
+                    print('iter #{}. Current log-loss:{}'.format(iteration,current_loss))
+                    #nn_pred=sess.run(self.outputs,feed_dict={X:X_batch})
+                    #nn_pred_reduced=np.round(nn_pred).astype(bool)
                     print('\n')
                     #save the weights
                     saver.save(sess,'tf_models/deep_relu_drop',global_step=iteration)
