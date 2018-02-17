@@ -17,7 +17,7 @@ class deep_dropout_NN(Model):
         self.lr = 0.01
         self.keep_prob=0.9
         self.frac_perc=0.01
-        self.n_iter=5000
+        self.n_iter=1000
         self.nout=200
         self.Nobs=Xshape[0]
         self.Nfeatures=Xshape[1]
@@ -96,7 +96,6 @@ class deep_dropout_NN(Model):
         #Need to add dropout layers too.
 
         # #just condense the number of inputs down, acting as a linear matrix combining results
-        print('NB: Only using 2 layers!')
         outputs=fully_connected(inputs=H4,num_outputs=self.Nout,
             activation_fn=tf.sigmoid)
         
@@ -206,7 +205,7 @@ class deep_dropout_NN(Model):
              plt.xlabel('Iterations x100')
              plt.show()
 
-            
+           
     def predict_all(self,model_name,input_data):
         """network_predict
         Load a saved Neural network, and predict the output labels
@@ -218,9 +217,17 @@ class deep_dropout_NN(Model):
         Output nn_pred_reduced - vector of predicted labels.
         """
         #tf.reset_default_graph()
+        #init=tf.global_variables_initializer()
+        saver=tf.train.Saver()
         with tf.Session() as sess:
-            loader=tf.train.import_meta_graph(model_name+'.meta')
-            loader.restore(sess,model_name)
+            #init.run()            
+            # loader=tf.train.import_meta_graph(model_name+'.meta')
+            # ##sess.run(tf.local_variables_initializer())
+            # loader.restore(sess,model_name)
+
+            #sess.run(tf.local_variables_initializer())
+            print('newer predict')
+            saver.restore(sess,model_name)
             Nin,Nfeat=input_data.shape
             if (Nin < self.Nbatch):
                 print('Number of inputs < Number of batch expected')
