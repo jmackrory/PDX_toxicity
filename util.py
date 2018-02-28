@@ -1,5 +1,7 @@
 # Contains a bunch of utilities written to help with initial data analysis.
 import numpy as np
+from csv import QUOTE_NONE
+import pandas as pd
 from sklearn.metrics import log_loss, roc_auc_score
 import string
 def clean_up(comments):
@@ -7,7 +9,7 @@ def clean_up(comments):
     Removes numbers, some symbols and html trash from a Pandas series of messages.
     """
     com_clean=comments.str.replace('(NEWLINE_TOKEN|\\n|\\t|TAB_TOKEN|TAB)',' ')
-    com_clean=comments.str.lower()
+    com_clean=com_clean.str.lower()
     #Remove HTML trash, via non-greedy replacing anything between backticks.
     #Should probably combine into a single regex.
     re_str="(style|class|width|align|cellpadding|cellspacing|rowspan|colspan)=(\`\`|\"\").*?(\`\`|\"\")"
@@ -18,7 +20,8 @@ def clean_up(comments):
     com_clean=com_clean.str.replace("\'",'')
     #remove symbols.    There must be a more comprehensive way of doing this?
     #re_str="[\+\-\=~\?\[\[\{\}=_\;\:\|\(\)\\\/\`\.\,_\"#!$%\^&\*@]+"
-    re_str="["+escape_punctuation()+"]+"
+    re_str="[!\"#\$%&\'\(\)\*\+,-\.\/:;<=>?@\[\]\\^_`\{\|\}~]+"
+    #re_str="["+escape_punctuation()+"]+"
     com_clean=com_clean.str.replace(re_str,' ')
     #remove multiple spaces, replace with a single space
     com_clean=com_clean.str.replace('\\s+',' ')
@@ -128,16 +131,51 @@ def check_predictions(pred,actual,epsilon=1E-15):
     print("False Negative {}. True Negative {}".format(fn,tn))
     pred_num=pred.astype(float)
     logloss=log_loss(actual,pred_num,eps=epsilon,normalize=True)    
-    #give zero a small correction.
-    #pred_num[pred==False]=epsilon
-    #pred_num[pred==True]=1-epsilon
-    #my (initial) wrong attempt
-    #logloss2=-np.mean(np.multiply(actual,np.log(pred_num)))
-    # logloss2=-np.mean(np.multiply(actual,np.log(pred_num))\
-    #     +np.multiply(1-actual,np.log(1-pred_num)))
-    # print(logloss2)
     auroc = roc_auc_score(actual,pred)
-    #logloss=0
     print("Log-loss is {}".format(logloss))
     print("AUROC is {}".format(auroc))    
     return scores,logloss
+
+
+def load_glove(dim=50):
+    """Reads in GloVE word vectors, of specified dimension.
+    Allowed dim=50,100,200,300.
+    Returns a dict for looking up indices for a given word, and a an array of actual 
+    vectors.
+    """
+    glove=pd.read_csv('embedding/glove.6B.'+str(dim)+'d.txt',sep=' ',index_col=0,header=None,quoting=QUOTE_NONE)
+    #make array 
+    glove_vec=glove.values
+    glove_dict=dict(zip(glove.index.values,np.arange(len(glove))))
+    return glove_vec, glove_dict
+
+def sentence_lookup(sentence,word_dict):
+    """sentence_lookup
+    Splits a string at the spaces. 
+    Then looks up each word in the provided dictionary, 
+    which maps words to index numbers.  
+    Then returns a list with those indices.
+    """
+    #make lower case, and split on spaces.
+    sentence=sentence.lower().split(' ')
+    num_list=[]
+    for word in sentence:
+        #lookup entry
+        try:
+            entry=word_dict[word].astype(int)
+            num_list.append(entry)
+        except:
+            entry=None
+    return num_list
+
+def sent_to_matrix(index,vectors,cutoff=200):
+    """create a matrix showing evolution over time
+    for each comment. Allow a maximum cutoff to only look at first 200 words.
+    """
+    vec_dim=vectors.shape[1]
+    nmax = min(len(index),200)
+    sent_mat = np.zeros((len(index),vec_dim))
+    for i in range(nmax):
+        vec=vectors[index[i]]
+        sent_mat[i]=vec
+    return sent_mat#, sent_avg
