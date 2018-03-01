@@ -173,9 +173,11 @@ def sent_to_matrix(index,vectors,cutoff=200):
     for each comment. Allow a maximum cutoff to only look at first 200 words.
     """
     vec_dim=vectors.shape[1]
-    nmax = min(len(index),200)
-    sent_mat = np.zeros((len(index),vec_dim))
-    for i in range(nmax):
-        vec=vectors[index[i]]
-        sent_mat[i]=vec
-    return sent_mat#, sent_avg
+    sent_mat = np.zeros((cutoff,vec_dim))
+    nmax = min(len(index),cutoff)
+
+    if (len(index)>0):
+        for i in range(nmax):
+            vec=vectors[index[i]]
+            sent_mat[i]=vec
+    return sent_mat
