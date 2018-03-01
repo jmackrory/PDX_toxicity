@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensorflow.contrib.layers import fully_connected, l2_regularizer
-from tensorflow.contrib.rnn import MultiRNNCell, BasicRNNCell, GRUCell, LSTMCell
+from tensorflow.contrib.rnn import MultiRNNCell, BasicRNNCell, GRUCell, LSTMCell,\
+    DropoutWrapper
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -28,9 +29,10 @@ class recurrent_NN(object):
         self.Nlayers=1
         self.Nhidden=100
         self.lr = 0.01
-        self.keep_prob=0.9
-        self.n_iter=100
-        self.nprint=20
+        self.keep_prob=0.5
+        self.n_iter=1000
+        self.nprint=50
+        self.is_training=True
         #self.Nobs=Nobs
         #only grabbing a fraction of the data
         self.Nbatch=20
@@ -74,12 +76,16 @@ class recurrent_NN(object):
         Returns a new cell (for deep recurrent networks), with Nneurons,
         and activation function fn.
         """
+        #Make cell type
         if self.cell_type=='basic':
             cell=BasicRNNCell(num_units=Nneurons,activation=fn)
         elif self.cell_type=='LSTM':
             cell=LSTMCell(num_units=Nneurons,activation=fn)
         elif self.cell_type=='GRU':
             cell=GRUCell(num_units=Nneurons,activation=fn)
+        #include dropout when training
+        if self.is_training:
+            cell=DropoutWrapper(cell,input_keep_prob=self.keep_prob)
         return cell
     
     def add_prediction_op(self):
@@ -89,14 +95,14 @@ class recurrent_NN(object):
         """
         cell_list=[]
         for i in range(self.Nlayers):
-            cell_list.append(self.make_RNN_cell(self.Nhidden,tf.nn.relu))
+            cell_list.append(self.make_RNN_cell(self.Nhidden,tf.nn.leaky_relu))
 
         multi_cell=tf.contrib.rnn.MultiRNNCell(cell_list,state_is_tuple=True)
         #Note that using [cell]*n_layers did not work.  This just made a copy pointing at the SAME cell in memory.
         rnn_outputs,states=tf.nn.dynamic_rnn(multi_cell,self.X,dtype=tf.float32)
         #use states (like CNN) since 
         #this maps the number of hidden units to fewer outputs.
-        outputs = fully_connected(states,self.Noutputs,activation_fn=None)
+        outputs = fully_connected(states,self.Noutputs,activation_fn=tf.sigmoid)
         outputs=outputs[0]
        
         return outputs
@@ -158,7 +164,7 @@ class recurrent_NN(object):
         ind_sub=np.random.choice(nobs,self.Nbatch,replace=False)
         Xsub = self.get_data(ind_sub,Xi)
         y_sub = yi[ind_sub]#.reshape((len(ind_sub),1))
-        return ind_sub,Xsub,y_sub
+        return Xsub,y_sub
 
     def get_data(self,ind,df_vec_ind):
         """get_data
@@ -174,14 +180,12 @@ class recurrent_NN(object):
             Xi[i]=sent_to_matrix(vec_indices,self.wordvec,cutoff=self.maxlen)
         return Xi
     
-    def run_graph(self,Xi,yi,save_name):
-        """run_graph
-
+    def train_graph(self,Xi,yi,save_name):
+        """train_graph
         Runs the deep NN on the reduced term-frequency matrix.
-
         """
         init=tf.global_variables_initializer()
-
+        self.is_training=True
         #save model and graph
         saver=tf.train.Saver()
 
@@ -197,12 +201,10 @@ class recurrent_NN(object):
                      clear_output(wait=True)
                      #current_pred=self.predict_on_batch(sess,X_batch)
                      print('iter #{}. Current log-loss:{}'.format(iteration,current_loss))
-                     #nn_pred=sess.run(self.outputs,feed_dict={X:X_batch})
-                     #nn_pred_reduced=np.round(nn_pred).astype(bool)
                      print('\n')
                      #save the weights
                      saver.save(sess,save_name,global_step=iteration)
-                     loss_tot[int(iteration/self.nout)]=current_loss
+                     loss_tot[int(iteration/self.nprint)]=current_loss
              plt.plot(loss_tot)
              plt.ylabel('Log-loss')
              plt.xlabel('Iterations x100')
