@@ -136,14 +136,13 @@ def check_predictions(pred,actual,epsilon=1E-15):
     print("AUROC is {}".format(auroc))    
     return scores,logloss
 
-
 def load_glove(dim=50):
     """Reads in GloVE word vectors, of specified dimension.
     Allowed dim=50,100,200,300.
     Returns a dict for looking up indices for a given word, and a an array of actual 
     vectors.
     """
-    glove=pd.read_csv('embedding/glove.6B.'+str(dim)+'d.txt',sep=' ',index_col=0,header=None,quoting=QUOTE_NONE)
+    glove=pd.read_csv('embeddings/glove.6B.'+str(dim)+'d.txt.gz',sep=' ',index_col=0,header=None,quoting=QUOTE_NONE)
     #make array 
     glove_vec=glove.values
     glove_dict=dict(zip(glove.index.values,np.arange(len(glove))))

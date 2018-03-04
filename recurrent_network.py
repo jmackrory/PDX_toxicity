@@ -26,16 +26,16 @@ class recurrent_NN(object):
         #number of dim on input
         self.Nfeatures=Ndim
         self.cell_type=cell
-        self.Nlayers=1
-        self.Nhidden=100
+        self.Nlayers=2
+        self.Nhidden=Ndim
         self.lr = 0.01
         self.keep_prob=0.5
-        self.n_iter=1000
-        self.nprint=50
+        self.n_iter=10000
+        self.nprint=100
         self.is_training=True
         #self.Nobs=Nobs
         #only grabbing a fraction of the data
-        self.Nbatch=20
+        self.Nbatch=200
         self.wordvec=wordvec
         self.build()
 
