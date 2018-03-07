@@ -10,6 +10,7 @@ from util import sent_to_matrix, load_glove
 
 #to prevent creating huge logs.
 from IPython.display import clear_output
+import time
 
 class recurrent_NN(object):
     """
@@ -28,14 +29,14 @@ class recurrent_NN(object):
         self.cell_type=cell
         self.Nlayers=2
         self.Nhidden=Ndim
-        self.lr = 0.01
+        self.lr = 0.001
         self.keep_prob=0.5
         self.n_iter=10000
         self.nprint=100
         self.is_training=True
         #self.Nobs=Nobs
         #only grabbing a fraction of the data
-        self.Nbatch=200
+        self.Nbatch=100
         self.wordvec=wordvec
         self.build()
 
@@ -85,7 +86,10 @@ class recurrent_NN(object):
             cell=GRUCell(num_units=Nneurons,activation=fn)
         #include dropout when training
         if self.is_training:
-            cell=DropoutWrapper(cell,input_keep_prob=self.keep_prob)
+            cell=DropoutWrapper(cell,input_keep_prob=self.keep_prob,
+                                variational_recurrent=True,
+                                input_size=Nneurons,
+                                dtype=tf.float32)
         return cell
     
     def add_prediction_op(self):
@@ -180,7 +184,7 @@ class recurrent_NN(object):
             Xi[i]=sent_to_matrix(vec_indices,self.wordvec,cutoff=self.maxlen)
         return Xi
     
-    def train_graph(self,Xi,yi,save_name):
+    def train_graph(self,Xi,yi,save_name=None):
         """train_graph
         Runs the deep NN on the reduced term-frequency matrix.
         """
@@ -190,25 +194,44 @@ class recurrent_NN(object):
         saver=tf.train.Saver()
 
         loss_tot=np.zeros(int(self.n_iter/self.nprint+1))
-        plt.figure()
-        with tf.Session() as sess:
-             init.run()
-             for iteration in range(self.n_iter+1):
-                 #select random starting point.
-                 X_batch,y_batch=self.get_batch(Xi,yi)
-                 current_loss=self.train_on_batch(sess, X_batch, y_batch)
-                 if (iteration)%self.nprint ==0:
-                     clear_output(wait=True)
-                     #current_pred=self.predict_on_batch(sess,X_batch)
-                     print('iter #{}. Current log-loss:{}'.format(iteration,current_loss))
-                     print('\n')
-                     #save the weights
-                     saver.save(sess,save_name,global_step=iteration)
-                     loss_tot[int(iteration/self.nprint)]=current_loss
-             plt.plot(loss_tot)
-             plt.ylabel('Log-loss')
-             plt.xlabel('Iterations x100')
-             plt.show()
+        #builder = tf.profiler.ProfileOptionBuilder
+        #opts = builder(builder.time_and_memory()).order_by('micros').build()
+        # Create a profiling context, set constructor argument `trace_steps`,
+        # `dump_steps` to empty for explicit control.
+        with tf.contrib.tfprof.ProfileContext('./tf_profile/',
+                                      trace_steps=[],
+                                      dump_steps=[]) as pctx:
+            with tf.Session() as sess:
+                t0=time.time()
+                init.run()
+                for iteration in range(self.n_iter+1):
+                    #select random starting point.
+                    t0_b=time.time()
+                    X_batch,y_batch=self.get_batch(Xi,yi)
+                    t1_b=time.time()
+                    t_batch_tot+=t1_b-t0_b
+                    #pctx.trace_next_step()
+                    #pctx.dump_next_step()
+                    current_loss=self.train_on_batch(sess, X_batch, y_batch)
+                    t2_b=time.time()
+                    t_train_tot+=t2_b+t1_b
+                    #pctx.profiler.profile_operations(options=opts)                    
+                    if (iteration)%self.nprint ==0:
+                        clear_output(wait=True)
+                        #current_pred=self.predict_on_batch(sess,X_batch)
+                        print('iter #{}. Current log-loss:{}'.format(iteration,current_loss))
+                        print('Time taken:{}'.format(t2_b-t0))
+                        print('Avg batch fetch time:{}.  Avg train time:{}'.format(t_batch_tot/iteration, t_train_tot/iteration))
+                        print('\n')
+                        #save the weights
+                        if (save_name != None):
+                            saver.save(sess,save_name,global_step=iteration)
+                        loss_tot[int(iteration/self.nprint)]=current_loss
+            plt.figure()                            
+            plt.plot(loss_tot)
+            plt.ylabel('Log-loss')
+            plt.xlabel('Iterations x100')
+            plt.show()
             
     def predict_all(self,model_name,input_data):
         """network_predict
