@@ -3,6 +3,8 @@ from tensorflow.contrib.layers import fully_connected, l2_regularizer
 from tensorflow.contrib.rnn import MultiRNNCell, BasicRNNCell, GRUCell, LSTMCell,\
     DropoutWrapper
 
+from tensorflow.python.tools import inspect_checkpoint as chkp
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -31,20 +33,19 @@ class recurrent_NN(object):
         self.Nhidden=Ndim
         self.lr = 0.001
         self.keep_prob=0.5
-        self.n_iter=10000
-        self.nprint=100
+        self.n_iter=20
+        self.nprint=10
         self.is_training=True
-        #self.Nobs=Nobs
         #only grabbing a fraction of the data
         self.Nbatch=100
         self.wordvec=wordvec
+        tf.reset_default_graph()        
         self.build()
 
     def build(self):
         """Creates essential components for graph, and 
         adds variables to instance. 
         """
-        tf.reset_default_graph()
         self.add_placeholders()
         self.pred = self.add_prediction_op()
         self.loss = self.add_loss_op(self.pred)
@@ -158,10 +159,10 @@ class recurrent_NN(object):
         predictions = sess.run(self.pred, feed_dict=feed)
         return predictions
         
-    def get_batch(self,Xi,yi):
-        """get_subset
+    def get_random_batch(self,Xi,yi):
+        """get_random_batch
         Returns random subset of the data and labels.
-        Maintains same fraction of toxic/non-toxic data as the full dataset.
+        Note: not necessarily balanced.
         """ 
         #make vector and sample indices for true/false.
         nobs=Xi.shape[0]
@@ -170,6 +171,15 @@ class recurrent_NN(object):
         y_sub = yi[ind_sub]#.reshape((len(ind_sub),1))
         return Xsub,y_sub
 
+    def get_pred_batch(self,i0,i1,Xi):
+        """get_pred_batch
+        Returns subset of the data for indicies between [i0,i1)
+        """ 
+        #make vector and sample indices for true/false.
+        ind_sub=np.arange(i0,i1)
+        Xsub = self.get_data(ind_sub,Xi)
+        return Xsub
+    
     def get_data(self,ind,df_vec_ind):
         """get_data
         Takes indices and finds desired comment.
@@ -188,52 +198,49 @@ class recurrent_NN(object):
         """train_graph
         Runs the deep NN on the reduced term-frequency matrix.
         """
-        init=tf.global_variables_initializer()
         self.is_training=True
         #save model and graph
         saver=tf.train.Saver()
-
+        init=tf.global_variables_initializer()
         loss_tot=np.zeros(int(self.n_iter/self.nprint+1))
-        #builder = tf.profiler.ProfileOptionBuilder
-        #opts = builder(builder.time_and_memory()).order_by('micros').build()
-        # Create a profiling context, set constructor argument `trace_steps`,
-        # `dump_steps` to empty for explicit control.
-        with tf.contrib.tfprof.ProfileContext('./tf_profile/',
-                                      trace_steps=[],
-                                      dump_steps=[]) as pctx:
-            with tf.Session() as sess:
-                t0=time.time()
-                init.run()
-                for iteration in range(self.n_iter+1):
-                    #select random starting point.
-                    t0_b=time.time()
-                    X_batch,y_batch=self.get_batch(Xi,yi)
-                    t1_b=time.time()
-                    t_batch_tot+=t1_b-t0_b
-                    #pctx.trace_next_step()
-                    #pctx.dump_next_step()
-                    current_loss=self.train_on_batch(sess, X_batch, y_batch)
-                    t2_b=time.time()
-                    t_train_tot+=t2_b+t1_b
-                    #pctx.profiler.profile_operations(options=opts)                    
-                    if (iteration)%self.nprint ==0:
-                        clear_output(wait=True)
-                        #current_pred=self.predict_on_batch(sess,X_batch)
-                        print('iter #{}. Current log-loss:{}'.format(iteration,current_loss))
-                        print('Time taken:{}'.format(t2_b-t0))
-                        print('Avg batch fetch time:{}.  Avg train time:{}'.format(t_batch_tot/iteration, t_train_tot/iteration))
-                        print('\n')
-                        #save the weights
-                        if (save_name != None):
-                            saver.save(sess,save_name,global_step=iteration)
-                        loss_tot[int(iteration/self.nprint)]=current_loss
+        #Try adding everything by name to a collection
+        tf.add_to_collection('X',self.X)
+        tf.add_to_collection('y',self.y)
+        tf.add_to_collection('loss',self.loss)
+        tf.add_to_collection('pred',self.pred)
+        tf.add_to_collection('train',self.train_op)
+        with tf.Session() as sess:
+            init.run()
+            saver.save(sess,save_name)
+            t0=time.time()
+            #Use Writer for tensorboard.
+            writer=tf.summary.FileWriter("logdir-train",sess.graph)            
+            for iteration in range(self.n_iter+1):
+                #select random starting point.
+                X_batch,y_batch=self.get_random_batch(Xi,yi)
+                current_loss=self.train_on_batch(sess, X_batch, y_batch)
+                t2_b=time.time()
+                if (iteration)%self.nprint ==0:
+                    clear_output(wait=True)
+                    #current_pred=self.predict_on_batch(sess,X_batch)
+                    print('iter #{}. Current log-loss:{}'.format(iteration,current_loss))
+                    print('Total Time taken:{}'.format(t2_b-t0))
+                    print('\n')
+                    #save the weights
+                    if (save_name != None):
+                        saver.save(sess,save_name,global_step=iteration,
+                                   write_meta_graph=False)
+                    #manual logging of loss    
+                    loss_tot[int(iteration/self.nprint)]=current_loss
+            writer.close()
+            #Manual plotting of loss.  Writer/Tensorboard supercedes this .
             plt.figure()                            
             plt.plot(loss_tot)
             plt.ylabel('Log-loss')
             plt.xlabel('Iterations x100')
             plt.show()
             
-    def predict_all(self,model_name,input_data):
+    def predict_all(self,model_name,num,input_data,reset=False):
         """network_predict
         Load a saved Neural network, and predict the output labels
         based on input_data
@@ -243,29 +250,56 @@ class recurrent_NN(object):
 
         Output nn_pred_reduced - vector of predicted labels.
         """
-        #tf.reset_default_graph()
+        if (reset):
+            tf.reset_default_graph()        
+        self.is_training=False
         with tf.Session() as sess:
-            loader=tf.train.import_meta_graph(model_name+'.meta')
-            loader.restore(sess,model_name)
-            Nin,Nfeat=input_data.shape
+
+            saver=tf.train.import_meta_graph(model_name+'.meta')
+            #restore graph structure
+            self.X=tf.get_collection('X')[0]
+            self.y=tf.get_collection('y')[0]
+            self.pred=tf.get_collection('pred')[0]                        
+            #restores weights etc.
+            saver.restore(sess,model_name+'-'+str(num))
+
+            
+            writer=tf.summary.FileWriter("logdir-pred",sess.graph)            
+            writer.close()
+            Nin=input_data.shape[0]
             if (Nin < self.Nbatch):
                 print('Number of inputs < Number of batch expected')
                 print('Padding with zeros')
                 input_dat=np.append(input_dat,
-                                    np.zeros((self.Nbatch-Nin,Nfeat)))
+                                    np.zeros((self.Nbatch-Nin,self.Noutputs)))
             i0=0
             i1=self.Nbatch
 
-            nn_pred_total=np.zeros((Nin,1))
+            nn_pred_total=np.zeros((Nin,self.Noutputs))
             while (i1 < Nin):
-                X_batch=input_data[i0:i1]
+                X_batch=self.get_pred_batch(i0,i1,input_data)
                 nn_pred=self.predict_on_batch(sess,X_batch)
                 nn_pred_total[i0:i1]=nn_pred
                 i0=i1
                 i1+=self.Nbatch
-            #last iter: do remaining operations.  
-            X_batch=input_data[-self.Nbatch:]
+            #last iter: do remaining operations.  (some redundancy here)
+            X_batch=self.get_pred_batch(Nin-self.Nbatch,Nin,input_data)
             nn_pred=self.predict_on_batch(sess,X_batch)
             nn_pred_total[-self.Nbatch:]=nn_pred
-            nn_pred_reduced=np.round(nn_pred_total).astype(bool)
-        return nn_pred_reduced
+            #nn_pred_reduced=np.round(nn_pred_total).astype(bool)
+        return nn_pred_total
+
+    def restore_model(self,sess,model_name):
+        """Attempts to reset both TF graph, and 
+        RNN stored variables/structure.
+        """
+        saver=tf.train.import_meta_graph(model_name+'.meta')
+        #restore graph structure
+        self.X=tf.get_collection('X')[0]
+        self.y=tf.get_collection('y')[0]
+        self.pred=tf.get_collection('pred')[0]
+        self.train=tf.get_collection('train')[0]
+        self.loss=tf.get_collection('loss')[0]
+        #restores weights etc.
+        saver.restore(sess,model_name+'-'+str(num))
+        
