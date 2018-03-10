@@ -33,19 +33,19 @@ class recurrent_NN(object):
         self.Nhidden=Ndim
         self.lr = 0.001
         self.keep_prob=0.5
-        self.n_iter=20
-        self.nprint=10
+        self.n_iter=40
+        self.nprint=20
         self.is_training=True
         #only grabbing a fraction of the data
         self.Nbatch=100
         self.wordvec=wordvec
-        tf.reset_default_graph()        
         self.build()
 
     def build(self):
         """Creates essential components for graph, and 
         adds variables to instance. 
         """
+        tf.reset_default_graph()        
         self.add_placeholders()
         self.pred = self.add_prediction_op()
         self.loss = self.add_loss_op(self.pred)
@@ -179,6 +179,10 @@ class recurrent_NN(object):
         ind_sub=np.arange(i0,i1)
         Xsub = self.get_data(ind_sub,Xi)
         return Xsub
+
+    #Should use tf.Data as described in seq2seq
+    
+    
     
     def get_data(self,ind,df_vec_ind):
         """get_data
@@ -209,9 +213,10 @@ class recurrent_NN(object):
         tf.add_to_collection('loss',self.loss)
         tf.add_to_collection('pred',self.pred)
         tf.add_to_collection('train',self.train_op)
+        
         with tf.Session() as sess:
             init.run()
-            saver.save(sess,save_name)
+            saver.save(sess,save_name,write_meta_graph=True)
             t0=time.time()
             #Use Writer for tensorboard.
             writer=tf.summary.FileWriter("logdir-train",sess.graph)            
@@ -259,13 +264,13 @@ class recurrent_NN(object):
             #restore graph structure
             self.X=tf.get_collection('X')[0]
             self.y=tf.get_collection('y')[0]
-            self.pred=tf.get_collection('pred')[0]                        
+            self.pred=tf.get_collection('pred')[0]
+            self.train_op=tf.get_collection('train_op')[0]
+            self.loss=tf.get_collection('loss')[0]
             #restores weights etc.
             saver.restore(sess,model_name+'-'+str(num))
-
-            
-            writer=tf.summary.FileWriter("logdir-pred",sess.graph)            
-            writer.close()
+            # writer=tf.summary.FileWriter("logdir-pred",sess.graph)            
+            # writer.close()
             Nin=input_data.shape[0]
             if (Nin < self.Nbatch):
                 print('Number of inputs < Number of batch expected')
@@ -289,7 +294,7 @@ class recurrent_NN(object):
             #nn_pred_reduced=np.round(nn_pred_total).astype(bool)
         return nn_pred_total
 
-    def restore_model(self,sess,model_name):
+    def restore_model(self,sess,model_name,num):
         """Attempts to reset both TF graph, and 
         RNN stored variables/structure.
         """
