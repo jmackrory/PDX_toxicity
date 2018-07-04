@@ -167,9 +167,29 @@ def sentence_lookup(sentence,word_dict):
             entry=None
     return num_list
 
+
+# def word_lookup(word,word_dict):
+#         #lookup entry
+#         try:
+#             entry=word_dict[word].astype(int)
+#             num_list.append(entry)
+#         except:
+#             entry=None
+    
+
 def sent_to_matrix(index,vectors,cutoff=200):
-    """create a matrix showing evolution over time
-    for each comment. Allow a maximum cutoff to only look at first 200 words.
+    """sent_to_matrix(index,vectors,cutoff=200)
+
+    Create a matrix showing evolution over time
+    for each comment. 
+    Allow a maximum cutoff to only look at first 200 words.
+    
+    Inputs: index - list of vector indices for each sentence.
+    vectors - dense word vectors for each word.
+    cutoff - maximum number of indices to consider.
+
+    Output: sent_mat - dense numpy array with each row being the 
+                       relevant representation of the word-vector
     """
     vec_dim=vectors.shape[1]
     sent_mat = np.zeros((cutoff,vec_dim))
